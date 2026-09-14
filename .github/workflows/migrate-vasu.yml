@@ -1,0 +1,85 @@
+name: NOVA Source Migration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout NOVA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone VASU source
+        run: git clone --depth 1 https://github.com/lknkumar62/Vasu-Voice-Assistant.git /tmp/vasu
+
+      - name: Migrate source while preserving NOVA files
+        run: |
+          set -e
+          rsync -a --delete-excluded \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='node_modules/' \
+            --exclude='dist/' \
+            --exclude='.next/' \
+            --exclude='.nova-backup/' \
+            --exclude='src/components/NovaOrb.tsx' \
+            /tmp/vasu/ ./
+
+          # Rename application branding without touching binary/model files.
+          find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' -o -name '*.html' -o -name '*.css' -o -name '*.md' -o -name '*.xml' -o -name '*.gradle' -o -name '*.properties' \) \
+            -not -path './.git/*' -not -path './node_modules/*' -print0 | \
+            xargs -0 -r sed -i \
+              -e 's/VASU Assistant/Nova Assistant/g' \
+              -e 's/Vasu Assistant/Nova Assistant/g' \
+              -e 's/VASU/NOVA/g' \
+              -e 's/Vasu/Nova/g' \
+              -e 's/vasu/nova/g'
+
+          # Keep NOVA's orb as the home visual where VasuOrb is referenced.
+          if [ -f src/components/VasuOrb.tsx ]; then
+            cp src/components/VasuOrb.tsx /tmp/VasuOrb.tsx
+          fi
+          if [ -f src/components/NovaOrb.tsx ]; then
+            # Replace the old orb implementation with the NOVA orb while retaining
+            # the old component name temporarily so existing prop call-sites compile.
+            cp src/components/NovaOrb.tsx src/components/VasuOrb.tsx
+          fi
+
+          # Restore NOVA README.
+          cat > README.md <<'EOF'
+          # Nova Assistant
+
+          NOVA is an Android-first AI voice assistant with a Maya-inspired interaction model and a custom animated quantum orb home experience.
+
+          ## Core areas
+          - Home / animated NOVA Orb
+          - Chat
+          - Voice
+          - Tools
+          - Memory
+          - Missions
+          - Guardian
+          - Permissions
+          - Settings
+          - Online AI providers
+          - Offline-first voice architecture
+
+          Maya APK is used only as a behavioral/architectural reference. Proprietary Maya source, credentials and protected assets are not copied.
+          EOF
+
+      - name: Commit migrated source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: migrate VASU application source into NOVA' || echo 'No changes to commit'
+          git push
